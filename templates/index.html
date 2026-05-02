@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Document Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-6">
+
+  <!-- Title -->
+  <h1 class="text-3xl font-bold mb-6 text-gray-800">
+    AI Document Agent
+  </h1>
+
+  <!-- Auth -->
+  <div class="bg-white p-4 rounded-xl shadow w-full max-w-2xl mb-4">
+    <button 
+      onclick="connectDrive()" 
+      class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
+    >
+      Connect Google Drive
+    </button>
+
+    <p id="authStatus" class="text-sm mt-2 text-gray-600"></p>
+  </div>
+
+  <!-- Folder Selection -->
+  <div class="bg-white p-4 rounded-xl shadow w-full max-w-2xl mb-4">
+    <label class="block mb-2 font-medium text-gray-700">
+      Select Folder
+    </label>
+
+    <div class="flex gap-2 mb-2">
+      <select id="folderSelect" class="flex-1 border p-2 rounded">
+        <option value="">-- Select Folder --</option>
+      </select>
+
+      <button 
+        onclick="fetchFolders()" 
+        class="bg-gray-500 text-white px-3 rounded"
+      >
+        Refresh
+      </button>
+      <button onclick="logout()" 
+class="bg-gray-700 text-white px-4 py-2 rounded ml-2">
+  Logout
+</button>
+    </div>
+
+    <input 
+      id="folderId"
+      class="border p-2 w-full rounded"
+      placeholder="Or paste Folder ID manually..."
+    />
+
+    <button 
+      onclick="loadDocs()" 
+      class="mt-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+    >
+      Load Documents
+    </button>
+
+    <p id="status" class="text-sm mt-2 text-gray-500"></p>
+  </div>
+
+  <!-- File List -->
+  <div class="bg-white p-4 rounded-xl shadow w-full max-w-2xl mb-4">
+    <h2 class="font-semibold mb-2">Loaded Documents</h2>
+    <ul id="fileList" class="text-sm text-gray-700 list-disc pl-5"></ul>
+  </div>
+
+  <!-- Chat -->
+  <div class="bg-white p-4 rounded-xl shadow w-full max-w-2xl flex flex-col h-[420px]">
+    <div id="chatBox" class="flex-1 overflow-y-auto mb-3 space-y-3"></div>
+
+    <div class="flex gap-2">
+      <input 
+        id="question"
+        class="flex-1 border p-2 rounded"
+        placeholder="Ask something from documents..."
+      />
+      <button 
+        onclick="askQuestion()" 
+        class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded"
+      >
+        Ask
+      </button>
+    </div>
+  </div>
+
+<script>
+
+  // -------- CONNECT DRIVE --------
+  function connectDrive() {
+    window.location.href = "/login";
+  }
+
+  // -------- FETCH FOLDERS --------
+  async function fetchFolders() {
+    const select = document.getElementById("folderSelect");
+
+    try {
+      const res = await fetch("/list-folders");
+      const data = await res.json();
+
+      console.log("Folders:", data);
+
+      select.innerHTML = '<option value="">-- Select Folder --</option>';
+
+      const folders = data.folders || [];
+
+      folders.forEach(folder => {
+        const option = document.createElement("option");
+        option.value = folder.id;
+        option.textContent = folder.name;
+        select.appendChild(option);
+      });
+
+    } catch (err) {
+      console.error(err);
+      alert("Error fetching folders");
+    }
+  }
+
+  // -------- LOAD DOCUMENTS --------
+  async function loadDocs() {
+    const folderIdInput = document.getElementById("folderId").value;
+    const folderSelect = document.getElementById("folderSelect").value;
+    const folderId = folderSelect || folderIdInput;
+
+    const status = document.getElementById("status");
+    const fileList = document.getElementById("fileList");
+
+    fileList.innerHTML = "";
+    status.innerText = "Loading documents...";
+
+    if (!folderId) {
+      status.innerText = "❌ Please select or enter folder ID";
+      return;
+    }
+
+    try {
+      const res = await fetch("/load", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ folder_id: folderId })
+      });
+
+      const data = await res.json();
+
+      if (data.error) {
+        status.innerText = "❌ " + data.error;
+        return;
+      }
+
+      status.innerText = "✅ Documents loaded successfully";
+
+      data.files.forEach(file => {
+        const li = document.createElement("li");
+        li.textContent = file;
+        fileList.appendChild(li);
+      });
+
+    } catch {
+      status.innerText = "❌ Error loading documents";
+    }
+  }
+
+  // -------- ASK QUESTION --------
+  async function askQuestion() {
+    const q = document.getElementById("question").value;
+    const chatBox = document.getElementById("chatBox");
+
+    if (!q) return;
+
+    const userMsg = document.createElement("div");
+    userMsg.className = "text-right";
+    userMsg.innerHTML = `<span class="bg-blue-200 px-3 py-1 rounded">${q}</span>`;
+    chatBox.appendChild(userMsg);
+
+    document.getElementById("question").value = "";
+
+    try {
+      const res = await fetch("/ask", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ question: q })
+      });
+
+      const data = await res.json();
+
+      let sourcesHTML = "";
+
+      if (data.sources && data.sources.length > 0) {
+        sourcesHTML = `
+          <div class="text-xs text-gray-500 mt-2">
+            <b>Sources:</b>
+            <ul class="list-disc pl-4">
+              ${data.sources.map(s => `<li>${s}</li>`).join("")}
+            </ul>
+          </div>
+        `;
+      }
+
+      const botMsg = document.createElement("div");
+      botMsg.className = "text-left";
+      botMsg.innerHTML = `
+        <div class="bg-green-200 px-3 py-2 rounded inline-block">
+          ${data.answer}
+          ${sourcesHTML}
+        </div>
+      `;
+
+      chatBox.appendChild(botMsg);
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+    } catch {
+      const err = document.createElement("div");
+      err.className = "text-red-500";
+      err.innerText = "Error getting response";
+      chatBox.appendChild(err);
+    }
+  }
+
+  // -------- CHECK AUTH --------
+  async function checkAuth() {
+    try {
+      const res = await fetch("/check-auth");
+      const data = await res.json();
+
+      const status = document.getElementById("authStatus");
+
+      if (data.logged_in) {
+        status.innerText = "✅ Connected to Google Drive";
+      } else {
+        status.innerText = "❌ Not connected";
+      }
+    } catch {
+      console.log("Auth check failed");
+    }
+  }
+
+  // -------- SINGLE WINDOW LOAD (FIXED) --------
+  window.onload = async function () {
+
+    // login popup
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get("login") === "success") {
+      alert("✅ Login Successful");
+      window.history.replaceState({}, document.title, "/");
+    }
+
+    // run BOTH
+    await checkAuth();
+    await fetchFolders();
+  };
+function logout() {
+  window.location.href = "/logout";
+}
+</script>
+
+</body>
+</html>
